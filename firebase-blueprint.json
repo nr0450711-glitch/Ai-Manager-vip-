@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Assistant configuration and profile for an authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Preferred user name" },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["BILINGUAL", "ENGLISH", "HINDI"],
+          "description": "Assistant language preference"
+        },
+        "voicePitch": { "type": "number", "description": "Female TTS pitch multiplier" },
+        "voiceRate": { "type": "number", "description": "Female TTS speech rate multiplier" },
+        "wakeWordEnabled": { "type": "boolean", "description": "Hands-free Hey JARVIS guard state" },
+        "automationConfirmed": { "type": "boolean", "description": "User-approved automation consent" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "displayName", "preferredLanguage", "voicePitch", "voiceRate", "wakeWordEnabled", "automationConfirmed", "createdAt"]
+    },
+    "UserMemory": {
+      "title": "UserMemory",
+      "description": "User-approved personal preference or memory fact remembered by JARVIS.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "memoryKey": { "type": "string" },
+        "memoryValue": { "type": "string" },
+        "category": { "type": "string", "enum": ["PREFERENCE", "CONTACT", "ROUTINE", "GENERAL"] },
+        "approved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "memoryKey", "memoryValue", "category", "approved", "createdAt"]
+    },
+    "AssistantTask": {
+      "title": "AssistantTask",
+      "description": "User task, reminder, daily schedule item, birthday, or alarm entry.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "notes": { "type": "string" },
+        "category": { "type": "string", "enum": ["TASK", "REMINDER", "SCHEDULE", "BIRTHDAY", "ALARM"] },
+        "dueLabel": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "category", "completed", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Persistent conversation message between user and JARVIS.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["USER", "ASSISTANT", "SYSTEM"] },
+        "content": { "type": "string" },
+        "languageTag": { "type": "string" },
+        "actionSummary": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "role", "content", "languageTag", "createdAt"]
+    },
+    "SocialDraft": {
+      "title": "SocialDraft",
+      "description": "Prepared social media or messaging draft awaiting user confirmation.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "platform": { "type": "string", "enum": ["FACEBOOK", "WHATSAPP", "SMS"] },
+        "caption": { "type": "string" },
+        "targetLabel": { "type": "string" },
+        "hasPhoto": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["DRAFT", "SHARED", "CANCELLED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "platform", "caption", "hasPhoto", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated user profile and assistant preferences"
+    },
+    "/users/{userId}/memories/{memoryId}": {
+      "schema": { "$ref": "#/entities/UserMemory" },
+      "description": "User-approved preferences and personal memories"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/AssistantTask" },
+      "description": "User tasks, reminders, daily schedule, birthdays, and alarms"
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "User conversation history with JARVIS VIP"
+    },
+    "/users/{userId}/socialDrafts/{draftId}": {
+      "schema": { "$ref": "#/entities/SocialDraft" },
+      "description": "Prepared Facebook, WhatsApp, and SMS drafts"
+    }
+  }
+}

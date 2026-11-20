@@ -1,0 +1,113 @@
+name: Build & Release JARVIS VIP Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_release:
+    name: Build, Test & Release JARVIS-VIP.apk
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Provision CI debug keystore if absent
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Validate Gradle & run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Verify app-debug.apk and stage JARVIS-VIP.apk
+        id: apk_check
+        run: |
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "::error::Expected APK not found at $APK_PATH"
+            exit 1
+          fi
+          mkdir -p build/release-apks
+          cp "$APK_PATH" "build/release-apks/app-debug.apk"
+          cp "$APK_PATH" "build/release-apks/JARVIS-VIP.apk"
+          VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -E 'versionCode\s*=' app/build.gradle.kts | head -n1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          TAG="v${VERSION_NAME:-1.0}.${VERSION_CODE:-1}-build.${GITHUB_RUN_NUMBER}"
+          echo "version_name=${VERSION_NAME:-1.0}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "apk_size=$(du -h build/release-apks/JARVIS-VIP.apk | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK as GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-VIP-APK
+          path: |
+            build/release-apks/JARVIS-VIP.apk
+            build/release-apks/app-debug.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: success()
+        id: gh_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.apk_check.outputs.release_tag }}
+          name: "JARVIS VIP ${{ steps.apk_check.outputs.release_tag }}"
+          body: |
+            ## JARVIS VIP Android APK Build
+            - **App Version:** ${{ steps.apk_check.outputs.version_name }}
+            - **Commit:** `${{ github.sha }}`
+            - **APK Size:** ${{ steps.apk_check.outputs.apk_size }}
+            - **Target Device Compatibility:** Android 7.0+ (Tested for Samsung Galaxy A51 / API 24–36)
+
+            > **Security Note:** This APK contains no embedded OpenAI API keys. Configure your Secure Backend Proxy URL in Settings or build locally with AI Studio Secrets.
+          files: |
+            build/release-apks/JARVIS-VIP.apk
+            build/release-apks/app-debug.apk
+          draft: false
+          prerelease: false
+
+      - name: Write APK Download Link to Build Summary
+        if: success()
+        run: |
+          TAG="${{ steps.apk_check.outputs.release_tag }}"
+          REPO="${{ github.repository }}"
+          JARVIS_URL="https://github.com/${REPO}/releases/download/${TAG}/JARVIS-VIP.apk"
+          DEBUG_URL="https://github.com/${REPO}/releases/download/${TAG}/app-debug.apk"
+          {
+            echo "# JARVIS VIP Build & Release Summary"
+            echo ""
+            echo "- **Status:** Build & Unit Tests Passed"
+            echo "- **Release Tag:** \`${TAG}\`"
+            echo "- **Direct Download (JARVIS-VIP.apk):** ${JARVIS_URL}"
+            echo "- **Direct Download (app-debug.apk):** ${DEBUG_URL}"
+            echo "- **Release Page:** https://github.com/${REPO}/releases/tag/${TAG}"
+          } >> "$GITHUB_STEP_SUMMARY"

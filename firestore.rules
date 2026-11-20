@@ -1,0 +1,184 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.userId == userId &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        data.preferredLanguage in ['BILINGUAL', 'ENGLISH', 'HINDI'] &&
+        data.voicePitch is number && data.voicePitch >= 0.5 && data.voicePitch <= 2.0 &&
+        data.voiceRate is number && data.voiceRate >= 0.5 && data.voiceRate <= 2.0 &&
+        data.wakeWordEnabled is bool &&
+        data.automationConfirmed is bool &&
+        isValidTimestamp(data.createdAt) &&
+        (!('updatedAt' in data) || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidUserMemory(data, userId) {
+      return data.userId == userId &&
+        data.memoryKey is string && data.memoryKey.size() >= 1 && data.memoryKey.size() <= 80 &&
+        data.memoryValue is string && data.memoryValue.size() >= 1 && data.memoryValue.size() <= 500 &&
+        data.category in ['PREFERENCE', 'CONTACT', 'ROUTINE', 'GENERAL'] &&
+        data.approved is bool &&
+        isValidTimestamp(data.createdAt) &&
+        (!('updatedAt' in data) || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidAssistantTask(data, userId) {
+      return data.userId == userId &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        data.category in ['TASK', 'REMINDER', 'SCHEDULE', 'BIRTHDAY', 'ALARM'] &&
+        (!('dueLabel' in data) || (data.dueLabel is string && data.dueLabel.size() <= 80)) &&
+        data.completed is bool &&
+        isValidTimestamp(data.createdAt) &&
+        (!('updatedAt' in data) || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidChatMessage(data, userId) {
+      return data.userId == userId &&
+        data.role in ['USER', 'ASSISTANT', 'SYSTEM'] &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 4000 &&
+        data.languageTag is string && data.languageTag.size() >= 2 && data.languageTag.size() <= 16 &&
+        (!('actionSummary' in data) || (data.actionSummary is string && data.actionSummary.size() <= 500)) &&
+        isValidTimestamp(data.createdAt) &&
+        (!('updatedAt' in data) || isValidTimestamp(data.updatedAt));
+    }
+
+    function isValidSocialDraft(data, userId) {
+      return data.userId == userId &&
+        data.platform in ['FACEBOOK', 'WHATSAPP', 'SMS'] &&
+        data.caption is string && data.caption.size() >= 1 && data.caption.size() <= 2000 &&
+        (!('targetLabel' in data) || (data.targetLabel is string && data.targetLabel.size() <= 120)) &&
+        data.hasPhoto is bool &&
+        data.status in ['DRAFT', 'SHARED', 'CANCELLED'] &&
+        isValidTimestamp(data.createdAt) &&
+        (!('updatedAt' in data) || isValidTimestamp(data.updatedAt));
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        incoming().keys().hasAll(['userId', 'displayName', 'preferredLanguage', 'voicePitch', 'voiceRate', 'wakeWordEnabled', 'automationConfirmed', 'createdAt']) &&
+        incoming().keys().hasOnly(['userId', 'displayName', 'preferredLanguage', 'voicePitch', 'voiceRate', 'wakeWordEnabled', 'automationConfirmed', 'createdAt', 'updatedAt']) &&
+        isValidUserProfile(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferredLanguage', 'voicePitch', 'voiceRate', 'wakeWordEnabled', 'automationConfirmed', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /memories/{memoryId} {
+        allow get: if isOwner(userId) && isValidId(memoryId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(memoryId) &&
+          incoming().keys().hasAll(['userId', 'memoryKey', 'memoryValue', 'category', 'approved', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'memoryKey', 'memoryValue', 'category', 'approved', 'createdAt', 'updatedAt']) &&
+          isValidUserMemory(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(memoryId) &&
+          isValidUserMemory(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memoryKey', 'memoryValue', 'category', 'approved', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(memoryId);
+      }
+
+      match /tasks/{taskId} {
+        allow get: if isOwner(userId) && isValidId(taskId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(taskId) &&
+          incoming().keys().hasAll(['userId', 'title', 'category', 'completed', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'title', 'notes', 'category', 'dueLabel', 'completed', 'createdAt', 'updatedAt']) &&
+          isValidAssistantTask(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(taskId) &&
+          isValidAssistantTask(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'notes', 'category', 'dueLabel', 'completed', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(taskId);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isOwner(userId) && isValidId(messageId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(messageId) &&
+          incoming().keys().hasAll(['userId', 'role', 'content', 'languageTag', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'role', 'content', 'languageTag', 'actionSummary', 'createdAt', 'updatedAt']) &&
+          isValidChatMessage(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(messageId);
+      }
+
+      match /socialDrafts/{draftId} {
+        allow get: if isOwner(userId) && isValidId(draftId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(draftId) &&
+          incoming().keys().hasAll(['userId', 'platform', 'caption', 'hasPhoto', 'status', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'platform', 'caption', 'targetLabel', 'hasPhoto', 'status', 'createdAt', 'updatedAt']) &&
+          isValidSocialDraft(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(draftId) &&
+          isValidSocialDraft(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          existing().status == 'DRAFT' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['caption', 'targetLabel', 'hasPhoto', 'status', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(draftId);
+      }
+    }
+  }
+}
